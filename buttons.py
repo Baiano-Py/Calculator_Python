@@ -2,8 +2,6 @@
 from PySide6.QtWidgets import QPushButton, QGridLayout
 from files.variables_ import *
 from files.utils import *
-from math import pi
-import json
 
 # criação da class botão
 class Button(QPushButton):
@@ -24,7 +22,7 @@ class ButtonsGrid(QGridLayout):
         super().__init__(*args, **kwargs)
         
         #Simbolo de todos os botões da calculadora:
-        self._grindMask =  [
+        self._gridMask =  [
             ['C', '/', '^', '◀'], # coluna 1 da interface de botões
             ['7', '8', '9', '*'], # coluna 2 da interface de botões
             ['4', '5', '6', '-'], # coluna 3 da interface de botões
@@ -38,7 +36,7 @@ class ButtonsGrid(QGridLayout):
         self._operator = None # operador da conta
         self.display = display # display: tela onde aparece os numeros escolhidos
         self.info = info # info: aparece as resposta das contas fica em cima display
-        self._makeGrind() #ativa a função de colocar os botões
+        self._makeGrid() #ativa a função de colocar os botões
 
     # função onde pega as informações dadas e coloca no Info:
     @property
@@ -49,10 +47,19 @@ class ButtonsGrid(QGridLayout):
     def equation(self, value):
         self._equation = value # seta o valor do label
         self.info.setText(value)# coloca o valor na info
+    
+
 
     # função dos botoes, essa parte ira estilizar eles e colocar na interface:
-    def _makeGrind(self):
-        for row_num, row in enumerate(self._grindMask): # pega a linha do simbulo
+    def _makeGrid(self):
+        self.display.enterPress.connect(self._calculation)
+        self.display.delPress.connect(self._backspace)
+        self.display.clearPress.connect(self._clear)
+        self.display.historyPress.connect(lambda: history_cont(self))
+        self.display.inputPress.connect(self._inserttoDisplay)
+        self.display.operatorPress.connect(self._configOperator)
+
+        for row_num, row in enumerate(self._gridMask): # pega a linha do simbulo
             for column_num, button_text in enumerate(row): # pega a coluna do simbolo
                 button = Button(button_text) # a variavel button pega o valor do simbolo adicionado
                 
@@ -64,7 +71,7 @@ class ButtonsGrid(QGridLayout):
                     
                 self.addWidget(button, row_num, column_num) #adiciona na interface
 
-                slot = self._makeSlot(self._InsertButtonTextDisplay, button) # coloca algo no display
+                slot = self._makeSlot(self._inserttoDisplay, button_text) # coloca algo no display
                 self._connectButtonClicked(button, slot) # faz uma coneção de click com o slot
 
     # função de conectar o click
@@ -81,7 +88,7 @@ class ButtonsGrid(QGridLayout):
 
         # ativar função de operadores
         elif text in '+-/*^':
-            button.clicked.connect(lambda: self._operatorClicked(button))
+            button.clicked.connect(lambda: self._configOperator(text))
         
         #ativa a função de carregar a resposta 
         elif text == '=':
@@ -104,14 +111,13 @@ class ButtonsGrid(QGridLayout):
     #função de dar o valor do pi
 
     # função de colocar no display
-    def _InsertButtonTextDisplay(self, button):
-        button_text = button.text() # pega o texto do botão
-        newDisplayValue = self.display.text() + button_text # adiciona o texto do botão no display
+    def _inserttoDisplay(self, text):
+        newDisplayValue = self.display.text() + text # adiciona o texto do botão no display
 
         if not isValidNumber(newDisplayValue):
             return
         
-        self.display.insert(button_text) # inseri no display o valor do botão
+        self.display.insert(text) # inseri no display o valor do botão
 
     #funçãodo clear
     def _clear(self):
@@ -122,17 +128,16 @@ class ButtonsGrid(QGridLayout):
         self.display.clear() # da clear no dislay
     
     #funções dos botões de operações matematica
-    def _operatorClicked(self, button):
-        buttonText = button.text() #pega o texto do botão
+    def _configOperator(self, text):
         displayText = self.display.text() # pega o texto do display
         
         if isValidNumber(displayText): # verifica se é um numero valido
             self._left = displayText # seta o valor do DisplayText
-            self._operator = buttonText # seta o operador com o valor do ButtonText
+            self._operator = text # seta o operador com o valor do ButtonText
             self.display.clear() # da clear no display
             self.equation = f'{self._left} {self._operator} ??' # adiciona na info o texto modificado
         else:
-            self._ShowError('ERROR: Digite um numero antes') # mostrar o error
+            showError(self.window, 'ERROR: Digite um numero antes') # mostrar o error
 
     
     #função de calcular o resultado
@@ -140,7 +145,7 @@ class ButtonsGrid(QGridLayout):
         displayText = self.display.text() #pega o texto do display
 
         if not isValidNumber(displayText) and (self._right is None or self._operator is None):
-            self._ShowError('ERROR: Você não digitou os parametros')
+            showError(self.window, 'ERROR: Você não digitou os parametros')
             return
 
         if self._right is None: #verifica se o numero 2 já tem valor
@@ -153,26 +158,33 @@ class ButtonsGrid(QGridLayout):
         try:
             if '^' in self.equation: # se escolher a opção de elevado
                 result = eval(self.equation.replace('^', '**')) # troca o simbolo de ^ por **
-                salvarArquivo(f'{self.equation} = {result}')
             else:
                 result = eval(self.equation) # faz a conta normal
-                salvarArquivo(f'{self.equation} = {result}')
 
         except ZeroDivisionError: # se dividir pro zero da erro
-            self._ShowError('ERROR: Numero não pode ser divisivel por zero')
+            showError(self.window, 'ERROR: Numero não pode ser divisivel por zero')
+            clearError(self)
             return
 
         except OverflowError: # se a resposta for muito grande
-            self._ShowError('ERROR: Numero muito frande para a calculadora')
+            showError(self.window, 'ERROR: Numero muito grande para a calculadora')
+            clearError(self)
             return
 
         except Exception as e: # se acontecer algum outro problema setar um error global:
-            self.info.setText('error') #setar erro na info
-            self._ShowError('ERROR: Tente novamente... Erro desconhecido')
+            showError(self.window, 'ERROR: Tente novamente... Erro desconhecido')
+            clearError(self)
             return # fazer a conta não passar daqui
-
+        
+        leftFormated = scientific_notation(self._left)
+        rightFormated = scientific_notation(self._right)
+        equationFormated = f'{leftFormated} {self._operator} {rightFormated}'
+        resultFormated = scientific_notation(result)
+        
+        scientific_notation(result)
+        salvar_arquivo(f'{equationFormated} = {resultFormated}')
         self.display.clear() # limpar o display
-        self.info.setText(f'{self.equation} = {result}') # setar a informação da resposta na info
+        self.info.setText(f'{equationFormated} = {resultFormated}') # setar a informação da resposta na info
         self._left = result # deixar o resultado da esquerda como o resultado da conta anterior 
         self._right = None # lado direito é setado None
 
@@ -186,12 +198,3 @@ class ButtonsGrid(QGridLayout):
         if displayText: # se tiver texto no display]
             nextTextDisplay = displayText[:-1] #fazer uma nova vatriavel de display com uma letra a menos
             self.display.setText(nextTextDisplay) # setar a nova variavel no display
-
-    def _ShowError(self, text):
-        mensageBox = self.window.makeMensageBox()
-        mensageBox.setText(text)
-        mensageBox.setIcon(mensageBox.Icon.Critical)
-        mensageBox.exec()
-    
-
-
